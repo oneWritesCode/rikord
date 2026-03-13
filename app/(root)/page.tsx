@@ -2,18 +2,33 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { get, set } from "idb-keyval";
-import { Camera, Square, Video, Trash2, Download } from "lucide-react";
+import {
+  Camera,
+  Square,
+  Video,
+  Trash2,
+  Download,
+  Pause,
+  Play,
+  Pencil,
+  Check,
+  X,
+} from "lucide-react";
 
 interface RecordedVideo {
   id: string;
   blob: Blob;
   timestamp: number;
+  caption: string;
 }
 
 export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [videos, setVideos] = useState<RecordedVideo[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editCaption, setEditCaption] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -94,10 +109,12 @@ export default function Home() {
     mediaRecorder.onstop = async () => {
       const finalMimeType = mediaRecorder.mimeType || "video/webm";
       const blob = new Blob(chunksRef.current, { type: finalMimeType });
+      const videoId = Date.now().toString();
       const newVideo: RecordedVideo = {
-        id: Date.now().toString(),
+        id: videoId,
         blob,
         timestamp: Date.now(),
+        caption: `Clip ${videoId.slice(-4)}`,
       };
 
       const updatedVideos = [newVideo, ...videos];
@@ -113,7 +130,20 @@ export default function Home() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      setIsPaused(false);
       stopCamera();
+    }
+  };
+
+  const togglePause = () => {
+    if (!mediaRecorderRef.current || !isRecording) return;
+
+    if (isPaused) {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
+    } else {
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
     }
   };
 
@@ -122,8 +152,31 @@ export default function Home() {
     await saveVideos(updatedVideos);
   };
 
+  const startEditCaption = (video: RecordedVideo) => {
+    setEditingId(video.id);
+    setEditCaption(video.caption);
+  };
+
+  const saveCaption = async () => {
+    if (!editingId) return;
+    const updatedVideos = videos.map((v) =>
+      v.id === editingId ? { ...v, caption: editCaption } : v,
+    );
+    await saveVideos(updatedVideos);
+    setEditingId(null);
+    setEditCaption("");
+  };
+
+  const cancelEditCaption = () => {
+    setEditingId(null);
+    setEditCaption("");
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when editing a caption
+      if (editingId) return;
+
       if (e.key === "Enter") {
         e.preventDefault();
         if (stream && !isRecording) {
@@ -132,11 +185,18 @@ export default function Home() {
           stopRecording();
         }
       }
+
+      if (e.key === " ") {
+        e.preventDefault();
+        if (isRecording) {
+          togglePause();
+        }
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [stream, isRecording, videos]);
+  }, [stream, isRecording, isPaused, videos, editingId]);
 
   return (
     <div className="min-h-screen bg-black text-white p-6 md:p-12">
@@ -152,25 +212,33 @@ export default function Home() {
 
         <section className="bg-white/8 rounded-3xl p-2 md:p-4 ">
           <div className="relative aspect-video bg-black rounded-2xl overflow-hidden shadow-inner flex flex-col items-center justify-center">
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              muted 
-              playsInline 
-              className={`w-full h-full object-cover transform -scale-x-100 ${!stream ? 'hidden' : ''}`}
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className={`w-full h-full object-cover transform -scale-x-100 ${!stream ? "hidden" : ""}`}
             />
-            
+
             {!stream && (
               <div className="absolute inset-0 flex flex-col items-center justify-center space-y-2 text-gray-500">
                 <Camera size={72} strokeWidth={1} className="opacity-50" />
                 <p className="text-lg">Camera is off</p>
               </div>
             )}
-            
+
             {isRecording && (
-              <div className="absolute top-6 right-6 flex items-center space-x-2 bg-red-500/20 px-4 py-2 rounded-full border border-red-500/50 backdrop-blur-md">
-                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
-                <span className="text-red-500 font-bold text-sm tracking-wider uppercase">Recording</span>
+              <div
+                className={`absolute top-6 right-6 flex items-center space-x-2 ${isPaused ? "bg-yellow-500/20 border-yellow-500/50" : "bg-red-500/20 border-red-500/50"} px-4 py-2 rounded-full border backdrop-blur-md`}
+              >
+                <div
+                  className={`w-3 h-3 rounded-full ${isPaused ? "bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.8)]" : "bg-red-500 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)]"}`}
+                />
+                <span
+                  className={`font-bold text-sm tracking-wider uppercase ${isPaused ? "text-yellow-500" : "text-red-500"}`}
+                >
+                  {isPaused ? "Paused" : "Recording"}
+                </span>
               </div>
             )}
           </div>
@@ -204,16 +272,36 @@ export default function Home() {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={stopRecording}
-                className="group flex items-center space-x-3 bg-gray-800 hover:bg-gray-700 text-white px-10 py-4 rounded-full font-bold text-lg transition-all shadow-lg border border-gray-700 transform hover:-translate-y-1"
-              >
-                <Square
-                  size={24}
-                  className="text-red-500 fill-red-500 group-hover:scale-110 transition-transform"
-                />
-                <span>Stop Recording</span>
-              </button>
+              <div className="flex space-x-4">
+                <button
+                  onClick={togglePause}
+                  className={`group flex items-center space-x-3 ${isPaused ? "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 shadow-[0_0_20px_rgba(22,163,74,0.3)] hover:shadow-[0_0_30px_rgba(22,163,74,0.5)]" : "bg-gradient-to-r from-yellow-600 to-amber-600 hover:from-yellow-500 hover:to-amber-500 shadow-[0_0_20px_rgba(202,138,4,0.3)] hover:shadow-[0_0_30px_rgba(202,138,4,0.5)]"} text-white px-8 py-4 rounded-full font-bold text-lg transition-all transform hover:-translate-y-1 cursor-pointer`}
+                  title="Press Space to toggle"
+                >
+                  {isPaused ? (
+                    <Play
+                      size={24}
+                      className="group-hover:scale-110 transition-transform"
+                    />
+                  ) : (
+                    <Pause
+                      size={24}
+                      className="group-hover:scale-110 transition-transform"
+                    />
+                  )}
+                  <span>{isPaused ? "Resume" : "Pause"}</span>
+                </button>
+                <button
+                  onClick={stopRecording}
+                  className="group flex items-center space-x-3 bg-gray-800 hover:bg-gray-700 text-white px-8 py-4 rounded-full font-bold text-lg transition-all shadow-lg border border-gray-700 transform hover:-translate-y-1 cursor-pointer"
+                >
+                  <Square
+                    size={24}
+                    className="text-red-500 fill-red-500 group-hover:scale-110 transition-transform"
+                  />
+                  <span>Stop</span>
+                </button>
+              </div>
             )}
           </div>
         </section>
@@ -261,10 +349,66 @@ export default function Home() {
                     </div>
 
                     <div className="p-6 flex items-center justify-between bg-gradient-to-b from-gray-900/50 to-gray-900 border-t border-gray-800/50">
-                      <div className="space-y-1.5">
-                        <p className="font-bold text-gray-200 text-lg">
-                          Clip {video.id.slice(-4)}
-                        </p>
+                      <div className="w-full space-y-1.5 flex-1 min-w-0">
+                        {editingId === video.id ? (
+                          <div className="flex items-center w-full">
+                            <input
+                              type="text"
+                              value={editCaption}
+                              onChange={(e) => setEditCaption(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveCaption();
+                                if (e.key === "Escape") cancelEditCaption();
+                              }}
+                              autoFocus
+                              className="flex-1 border border-purple-500/50 rounded-lg px-3 py-1.5 text-gray-200 text-lg font-bold focus:outline-none ring-none transition-all"
+                            />
+                            <button
+                              onClick={saveCaption}
+                              className="p-0.5 mr-1 ml-2 text-green-400 hover:text-green-300 hover:bg-green-500/10 rounded-full transition-all cursor-pointer"
+                              title="Save"
+                            >
+                              <Check size={18} />
+                            </button>
+                            <button
+                              onClick={cancelEditCaption}
+                              className="p-0.5 text-gray-400 hover:text-gray-300 hover:bg-gray-700 rounded-full transition-all cursor-pointer"
+                              title="Cancel"
+                            >
+                              <X size={18} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <p className="font-bold text-gray-200 text-lg truncate">
+                              {video.caption}
+                            </p>
+                            <div className="flex">
+                              <button
+                                onClick={() => startEditCaption(video)}
+                                className="p-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-all hover:scale-110 cursor-pointer"
+                                title="Edit caption"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <a
+                                href={url}
+                                download={`rikord-${video.id}.webm`}
+                                className="p-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-all hover:scale-110 cursor-pointer"
+                                title="Download"
+                              >
+                                <Download size={20} />
+                              </a>
+                              <button
+                                onClick={() => deleteVideo(video.id)}
+                                className="p-2.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-full transition-all hover:scale-110 cursor-pointer"
+                                title="Delete"
+                              >
+                                <Trash2 size={20} />
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
                           {date.toLocaleDateString(undefined, {
                             month: "short",
@@ -276,23 +420,6 @@ export default function Home() {
                             minute: "2-digit",
                           })}
                         </p>
-                      </div>
-                      <div className="flex space-x-3">
-                        <a
-                          href={url}
-                          download={`rikord-${video.id}.webm`}
-                          className="p-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-full transition-all hover:scale-110"
-                          title="Download"
-                        >
-                          <Download size={20} />
-                        </a>
-                        <button
-                          onClick={() => deleteVideo(video.id)}
-                          className="p-2.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-full transition-all hover:scale-110"
-                          title="Delete"
-                        >
-                          <Trash2 size={20} />
-                        </button>
                       </div>
                     </div>
                   </div>
