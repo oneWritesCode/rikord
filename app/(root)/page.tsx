@@ -20,6 +20,7 @@ interface RecordedVideo {
   blob: Blob;
   timestamp: number;
   caption: string;
+  duration?: number;
 }
 
 export default function Home() {
@@ -29,6 +30,8 @@ export default function Home() {
   const [videos, setVideos] = useState<RecordedVideo[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCaption, setEditCaption] = useState("");
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const durationRef = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -37,6 +40,27 @@ export default function Home() {
   useEffect(() => {
     loadVideos();
   }, []);
+
+  // Timer for recording
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isRecording && !isPaused) {
+      interval = setInterval(() => {
+        setRecordingDuration((prev) => {
+          const next = prev + 1;
+          durationRef.current = next;
+          return next;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isRecording, isPaused]);
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   const loadVideos = async () => {
     try {
@@ -87,6 +111,8 @@ export default function Home() {
   const startRecording = () => {
     if (!stream) return;
 
+    setRecordingDuration(0);
+    durationRef.current = 0;
     chunksRef.current = [];
 
     let options = {};
@@ -115,6 +141,7 @@ export default function Home() {
         blob,
         timestamp: Date.now(),
         caption: `Clip ${videoId.slice(-4)}`,
+        duration: durationRef.current,
       };
 
       const updatedVideos = [newVideo, ...videos];
@@ -229,15 +256,20 @@ export default function Home() {
 
             {isRecording && (
               <div
-                className={`absolute top-6 right-6 flex items-center space-x-2 ${isPaused ? "bg-yellow-500/20 border-yellow-500/50" : "bg-red-500/20 border-red-500/50"} px-4 py-2 rounded-full border backdrop-blur-md`}
+                className={`absolute top-6 right-6 flex items-center space-x-3 ${isPaused ? "bg-yellow-500/20 border-yellow-500/50" : "bg-red-500/20 border-red-500/50"} px-4 py-2 rounded-full border backdrop-blur-md transition-colors duration-300`}
               >
-                <div
-                  className={`w-3 h-3 rounded-full ${isPaused ? "bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.8)]" : "bg-red-500 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)]"}`}
-                />
-                <span
-                  className={`font-bold text-sm tracking-wider uppercase ${isPaused ? "text-yellow-500" : "text-red-500"}`}
-                >
-                  {isPaused ? "Paused" : "Recording"}
+                <div className="flex items-center space-x-2 border-r border-white/20 pr-3 mr-1">
+                  <div
+                    className={`w-3 h-3 rounded-full ${isPaused ? "bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.8)]" : "bg-red-500 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)]"}`}
+                  />
+                  <span
+                    className={`font-bold text-sm tracking-wider uppercase ${isPaused ? "text-yellow-500" : "text-red-500"}`}
+                  >
+                    {isPaused ? "Paused" : "Recording"}
+                  </span>
+                </div>
+                <span className="font-mono font-bold text-lg text-white">
+                  {formatDuration(recordingDuration)}
                 </span>
               </div>
             )}
@@ -346,6 +378,11 @@ export default function Home() {
                         controls
                         className="w-full h-full object-cover"
                       />
+                      {video.duration !== undefined && (
+                        <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg text-xs font-bold border border-white/10">
+                          {formatDuration(video.duration)}
+                        </div>
+                      )}
                     </div>
 
                     <div className="p-6 flex items-center justify-between bg-gradient-to-b from-gray-900/50 to-gray-900 border-t border-gray-800/50">
